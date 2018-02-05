@@ -40,6 +40,8 @@ import sys
 # print(tmp_dict1)
 
 import random
+import src.utils as utils
+
 
 # dick = {'1': 22, '2':33, '3':44}
 # print(dick)
@@ -70,12 +72,29 @@ import random
 # except Exception:
 #     print(" lai loi")
 
-class x():
-    def __init__(self):
-        self.x = 0
-        self._private_x = 1
-    def _get(self):
-        return self.x
+# class x():
+#     def __init__(self):
+#         self.x = 0
+#         self._private_x = 1
+#     def _get(self):
+#         return self.x
+#
+# test = x()
+# print(test.__init__())
 
-test = x()
-print(test.__init__())
+def xxxrange(n):
+    i = 0
+    while i < n:
+        yield i
+        i += 1
+
+
+xxx = xxxrange(3)
+
+print(xxx.__next__())
+print(xxx.__next__())
+print(xxx.__next__())
+
+tag = utils.ForwardBackwardTagger()
+
+print(tag._BaseTagger__do_nothing())
