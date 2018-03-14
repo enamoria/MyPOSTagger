@@ -1,9 +1,10 @@
 import time
 
 from numpy import empty
-from src.utils import normalize_input_sentence, evaluate, add_begin_and_trailing_tag
+
 from classes.BaseTagger import BaseTagger
 from src.CONSTANT import POS_TAG_KEYNAME, WORD_KEYNAME, TRUETAG_KEYNAME
+from src.utils import evaluate, n_gram_count_word_joint_tag
 
 
 class NaiveTagger(BaseTagger):
@@ -13,17 +14,9 @@ class NaiveTagger(BaseTagger):
     """
 
     def __init__(self, sentence=None, filename=None):
-        BaseTagger.__init__(self, filename=filename)
+        BaseTagger.__init__(self, sentence, filename=filename)
 
-        try:
-            self.data, self.vocabulary, self.N = self.read()
-        except FileNotFoundError:
-            print("File not found")
-
-        if sentence is not None:
-            self.querySentence = normalize_input_sentence(sentence)
-        else:
-            print("Query sentence format doesn't supported")
+        print("A naive tagger. Slow as fuck")
 
     def probabilities(self, n=3):
         # Argument sentence has to be normalized first
@@ -81,8 +74,7 @@ class NaiveTagger(BaseTagger):
                         tag_count[tmp] += 1
 
             begin = end = ""
-            for i in range(
-                    n):  # n, not n-1, since in this case we consider the first BEGIN as the beginning of the sentence
+            for i in range(n):  # n, not n-1 since in this case we consider first BEGIN as the beginning of the sentence
                 begin += "BEGIN\t"
                 end += "END\t"
             begin = begin[:len(begin) - 1]
@@ -128,25 +120,6 @@ class NaiveTagger(BaseTagger):
             # print(tag)
 
             return count_w_t[word][tag] / float(count_t_t[tag])
-
-        def n_gram_count_word_joint_tag(data, n=3):
-            """ Count how many times a word and tag appear together """
-            word_tag_count = {}
-
-            def update():
-                if word[POS_TAG_KEYNAME] not in word_tag_count[word[WORD_KEYNAME]]:
-                    word_tag_count[word[WORD_KEYNAME]][word[POS_TAG_KEYNAME]] = 1
-                else:
-                    word_tag_count[word[WORD_KEYNAME]][word[POS_TAG_KEYNAME]] += 1
-
-            for sentence in data:
-                for word in sentence:
-                    if word[WORD_KEYNAME] not in word_tag_count:
-                        word_tag_count[word[WORD_KEYNAME]] = {}
-
-                    update()
-
-            return word_tag_count
 
         unigram_count_tag = n_gram_count_tag(self.data, n=1)
         bigram_count_tag = n_gram_count_tag(self.data, n=2)
