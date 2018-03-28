@@ -1,6 +1,7 @@
 import os
-from src.CONSTANT import POS_TAG_KEYNAME, tagset, ROOT_DIR
+from src.CONSTANT import POS_TAG_KEYNAME, tagset, ROOT_DIR, RARE_THRESHOLD, RULE_OK_PROBABILITY, punctuations_and_symbols
 from src.utils import normalize_input_sentence, n_gram_count_word_joint_tag
+from src.rules import *
 import numpy as np
 from src.IO.reader import Reader
 import sys
@@ -44,9 +45,16 @@ class BaseTagger:
                         vocabulary[word[0]] += 1
 
             self.vocabulary = vocabulary
+            self.rareWords = self.rareWords()
+            self.vocabulary['unk'] = len(self.rareWords)
+
+            for filedata in self.data:
+                for idx in range(len(filedata)):
+                    if filedata[idx][0] in self.rareWords:
+                        filedata[idx][0] = 'unk'
+
             self.tagset = sorted(tagset)
-            # print(self.tagset)
-            # self.tagset.extend(('BEGIN', 'END', 'UNKNOWN'))
+
             self.tag_index_dict = self.map_index_to_POS_tag()
             self.vocab_index_dict = self.map_index_to_vocab()
 
@@ -59,61 +67,109 @@ class BaseTagger:
             self.querySentence = [word.split("/") if word != "/" else ['/', '/']
                                   for word in sentence.strip(" ").replace("\n", " ").split(" ")]
         else:
-            print("Query sentence format doesn't supported")
-
-        self.fill_unknown_word()
+            print("Query sentence format isn't supported")
 
         ''' Transittion matrix of HMM '''
         self.state_count = self.state_count()
         self.obs_joint_state_count = self.obs_joint_state_count()
 
         self.ngram_state, self.ngram_obs = self.ngram()
-        # print(self.ngram_state)
-        # print(self.ngram_obs)
 
         self.emissions = self.emissions()
-        # print(self.emissions)
         self.transitions = self.transition()
 
-        # print(self.transitions)
+        # print("Start ==================")
+        # for i in punctuations_and_symbols:
+        #     for j in punctuations_and_symbols:
+        #         try:
+        #             print(i, j, self.tag_index_dict[i], self.tag_index_dict[j],
+        #                   self.emissions[self.tag_index_dict[i]][self.vocab_index_dict[j]])
+        #         except KeyError:
+        #             print("Nope ...")
+        # input("....")
+        # print("=========================")
+        
+        ''' Handling unknown in test set '''
+        self.handling_unknown()
 
-    def fill_unknown_word_in_test_set(self):
-        unk_word_count = 0
-        for word in self.querySentence:
-            try:
-                if word[0] not in self.vocab_index_dict:
-                    unk_word_count += 1
-                    self.vocab_index_dict[word[0]] = len(self.vocab_index_dict)
-                    self.vocabulary[word[0]] = 1
-                if word[1] not in self.tag_index_dict:
-                    self.tag_index_dict[word[1]] = len(self.tag_index_dict)
-                    self.tagset.extend(word[1])
+    def handling_unknown(self):
+        def rule_check(word):
+            if isNumber(word):
+                return 'M'
+
+            if isNp(word):
+                return 'Np'
+
+            if isPunc(word):
+                return word
+
+            return None
+
+        def fill_unknown_word_in_test_set():
+            unk_word_count = 0
+            for word in self.querySentence:
+                try:
+                    if word[0] not in self.vocab_index_dict:
+                        unk_word_count += 1
+                        self.vocab_index_dict[word[0]] = len(self.vocab_index_dict)
+                        self.vocabulary[word[0]] = 1
+                    if word[1] not in self.tag_index_dict:
+                        self.tag_index_dict[word[1]] = len(self.tag_index_dict)
+                        self.tagset.extend(word[1])
 
                     j = self.vocab_index_dict[word[0]]
-                    i = self.tag_index_dict[word[1]]
-                    # emiss[i][j] = 0.0000000001
-            except IndexError:
-                print("Exception:", word)
+                    # i = self.tag_index_dict[word[1]]
 
+                    check = rule_check(word[0])
+                    if check is not None:
+                        if word[0] in punctuations_and_symbols:
+                            self.emissions[self.tag_index_dict[check]][:] = 0
+                            self.emissions[self.tag_index_dict[check]][j] = 1
+                        else:
+                            self.emissions[self.tag_index_dict[check]][j] = RULE_OK_PROBABILITY
 
-        print("#unknown word:", unk_word_count)
+                            # print(check, word)
+
+                        # print(check, self.emissions[self.tag_index_dict[check]][:].tolist().count(1.0))
+                # emiss[i][j] = 0.0000000001
+                except IndexError:
+                    print("Exception:", word)
+
+            print("#unknown word:", unk_word_count)
+
+            # for i in punctuations_and_symbols:
+            #     for j in punctuations_and_symbols:
+            #         try:
+            #             print(i, j, self.tag_index_dict[i], self.tag_index_dict[j], self.emissions[self.tag_index_dict[i]][self.vocab_index_dict[j]])
+            #         except KeyError:
+            #             print("Nope ...")
+
+        def replace_rare_word_with_unk_training_set():
+            for key, value in self.vocabulary.items():
+                if value < RARE_THRESHOLD:
+                    return
+
+        fill_unknown_word_in_test_set()
+        # replace_rare_word_with_unk_training_set()
 
     def emissions(self):
         """
             Emission matrix. Format {'B': {'Asiad': 0.041666666666666664, 'album': 0.041666666666666664} }
         :return:
         """
-        emiss = np.full((len(self.tagset) + 1000, len(self.vocabulary) + 1000), 0.0000000001, dtype=np.float64)
+        emiss = np.full((len(self.tagset) + 3000, len(self.vocabulary) + 3000), 1/float(len(self.tagset) * len(self.vocabulary)), dtype=np.float64)
 
         for state in self.obs_joint_state_count:
             i = self.tag_index_dict[state]
+
             for word in self.obs_joint_state_count[state]:
                 j = self.vocab_index_dict[word]
-                emiss[i][j] = self.obs_joint_state_count[state][word] / float(self.state_count[state])
-                # print(i, j, emiss[i][j])
 
-        # print(emiss)
-        # input("..")
+                if state in punctuations_and_symbols and word in punctuations_and_symbols:
+                    emiss[i][:] = 0
+
+                emiss[i][j] = self.obs_joint_state_count[state][word] / float(self.state_count[state])
+
         return emiss
 
     def transition(self):
@@ -123,7 +179,7 @@ class BaseTagger:
         """
         print("=======================================")
         # transitions = {key[0]: {} for key in self.ngram_state}
-        transitions = np.zeros((len(self.tagset) + 100, len(self.tagset) + 100), dtype=np.float64)
+        transitions = np.zeros((len(self.tagset) + 300, len(self.tagset) + 300), dtype=np.float64)
 
         print("Start calculating transition ...")
         for key in self.ngram_state:
@@ -148,16 +204,15 @@ class BaseTagger:
         ngram_state = {}
 
         for index, sentence in enumerate(self.data):
-
-            # print(sentence)
-            # words = [word.split("/")[1] for word in sentence]
             words = []
             states = []
+
             for idx, word in enumerate(sentence):
                 try:
-                    # print(word)
-                    # words.append(word.split("/")[1])
-                    words.append(word[0])
+                    if word[0] in self.rareWords:
+                        words.append('unk')
+                    else:
+                        words.append(word[0])
                     states.append(word[1])
                 except IndexError:
                     print(index, word, sentence[idx + 1], filelist[index])
@@ -224,15 +279,20 @@ class BaseTagger:
 
         obs_joint_state = {}
         for sentence in self.data:
-            for word in sentence:
+            for idx in range(len(sentence)):
                 # xxx = word.split("/")
                 # tag = xxx[1]
-                if word[1] not in obs_joint_state:  # check for state
-                    obs_joint_state[word[1]] = {}
-                if word[0] not in obs_joint_state[word[1]]:
-                    obs_joint_state[word[1]][word[0]] = 1
+                if sentence[idx][1] not in obs_joint_state:  # check for state
+                    obs_joint_state[sentence[idx][1]] = {}
+
+                tmp = sentence[idx][0]
+                if tmp in self.rareWords:
+                    tmp = 'unk'
+
+                if tmp not in obs_joint_state[sentence[idx][1]]:
+                    obs_joint_state[sentence[idx][1]][tmp] = 1
                 else:
-                    obs_joint_state[word[1]][word[0]] += 1
+                    obs_joint_state[sentence[idx][1]][tmp] += 1
 
         print("Done counting obs_joint_state.", len(obs_joint_state), " pairs were found")
         return obs_joint_state
@@ -301,6 +361,14 @@ class BaseTagger:
 
     def map_index_to_vocab(self):
         return {tag: mapped_index for mapped_index, tag in enumerate(self.vocabulary.keys())}
+
+    def rareWords(self):
+        rare_words = []
+        for key, value in self.vocabulary.items():
+            if value < RARE_THRESHOLD:
+                rare_words.append(key)
+
+        return rare_words
 
     def count_POS(self, query_tag):
         """
